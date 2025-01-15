@@ -1580,13 +1580,19 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 	if (
 		pwr.requested_sleep || // hardware requested sleep
 		now-last_input_at>=SLEEP_DELAY || // autosleep
-		(pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at) // manual sleep
+		(pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at) || // manual sleep
+		(lid.has_lid && !lid.is_open) || // lid closed
+		(lid.has_lid && PLAT_lidChanged(&lid.is_open) && !lid.is_open) // lid just closed
 	) {
 		pwr.requested_sleep = 0;
 		if (before_sleep) before_sleep();
-		PWR_sleep();
+		if (PLAT_supportsDeepSleep()) {
+			PWR_deepSleep();
+		} else {
+			PWR_fauxSleep();
+		}
 		if (after_sleep) after_sleep();
-		
+
 		last_input_at = now = SDL_GetTicks();
 		power_pressed_at = 0;
 		dirty = 1;
@@ -1710,66 +1716,35 @@ static void PWR_waitForWake(void) {
 			break;
 		}
 		SDL_Delay(200);
-		if (SDL_GetTicks()-sleep_ticks>=120000) { // increased to two minutes
-			if (pwr.is_charging) {
-				sleep_ticks += 60000; // check again in a minute
-				continue;
-			}
-			if (PLAT_supportsDeepSleep()) {
-				int ret = PWR_deepSleep();
-				if (ret == 0) {
-					return;
-				} else if (deep_sleep_attempts < 3) {
-					LOG_warn("failed to enter deep sleep - retrying in 5 seconds\n");
-					sleep_ticks += 5000;
-					deep_sleep_attempts++;
-					continue;
-				} else {
-					LOG_warn("failed to enter deep sleep - powering off\n");
-				}
-			}
-			if (pwr.can_poweroff) {
-				PWR_powerOff();
-			};
+		if (pwr.can_poweroff && SDL_GetTicks()-sleep_ticks>=120000) { // increased to two minutes
+			if (pwr.is_charging) sleep_ticks += 60000; // check again in a minute
+			else PWR_powerOff();
 		}
 	}
 	
-	return;
-}
-void PWR_sleep(void) {
-	LOG_info("Entering hybrid sleep\n");
-	GFX_clear(gfx.screen);
-	PAD_reset();
-	PWR_enterSleep();
-	PWR_waitForWake();
-	PWR_exitSleep();
-	PAD_reset();
+ 	return;
+ }
+void PWR_fauxSleep(void) {
+ 	LOG_info("Entering faux sleep\n");
+ 	GFX_clear(gfx.screen);
+ 	PAD_reset();
+ 	PWR_enterSleep();
+ 	PWR_waitForWake();
+ 	PWR_exitSleep();
+ 	PAD_reset();
+ }
 
-	pwr.resume_tick = SDL_GetTicks();
-}
+void PWR_deepSleep(void) {
+ 	LOG_info("Entering deep sleep\n");
+ 	GFX_clear(gfx.screen);
+ 	PAD_reset();
+ 	PWR_enterSleep();
+ 	PLAT_deepSleep();
+ 	PWR_exitSleep();
+ 	PAD_reset();
 
-int PWR_deepSleep(void) {
-	// Run `${BIN_PATH}/suspend` if it exists, then fall back
-	// to the PLAT_deepSleep implementation.
-	//
-	// We assume the suspend executable exits after a full
-	// suspend/resume cycle.
-	char *suspend_path = BIN_PATH "/suspend";
-	if (exists(suspend_path)) {
-		LOG_info("suspending using platform suspend executable\n");
-
-		int ret = system(suspend_path);
-		if (ret < 0) {
-			LOG_error("failed to launch suspend executable: %d\n", errno);
-			return -1;
-		}
-
-		LOG_info("suspend executable exited with %d\n", ret);
-		return ret == 0 ? 0 : -1;
-	}
-
-	return PLAT_deepSleep();
-}
+ 	pwr.resume_tick = SDL_GetTicks();
+ }
 
 void PWR_disableAutosleep(void) {
 	pwr.can_autosleep = 0;
