@@ -127,13 +127,13 @@ special:
 tidy:
 	# ----------------------------------------------------
 	# copy update from rg35xxplus to old rg40xxcube bin so old cards update properly
-	mkdir -p ./build/SYSTEM/rg40xxcube/bin/
-	cp ./build/SYSTEM/rg35xxplus/bin/install.sh ./build/SYSTEM/rg40xxcube/bin/
+	#mkdir -p ./build/SYSTEM/rg40xxcube/bin/
+	#cp ./build/SYSTEM/rg35xxplus/bin/install.sh ./build/SYSTEM/rg40xxcube/bin/
 
 	# remove various detritus
 	rm -rf ./build/EXTRAS/Tools/tg5040/Developer.pak
 
-package: tidy
+package: tidy 
 	# ----------------------------------------------------
 	# zip up build
 		

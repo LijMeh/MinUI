@@ -1,4 +1,4 @@
-# MinUI
+# MinUI (redux)
 
 MinUI is a focused, custom launcher and libretro frontend for [a variety of retro handhelds](#supported-devices).
 
@@ -32,12 +32,13 @@ MinUI is a focused, custom launcher and libretro frontend for [a variety of retr
   multiple devices from different
   manufacturers
 
-You can [grab the latest version here](https://github.com/shauninman/MinUI/releases).
+## Primary Changes
 
-> Devices with a physical power switch
-> use MENU to sleep and wake instead of
-> POWER. Once asleep the device can safely
-> be powered off manually with the switch.
+- For ease of use, I'm only building for the consoles I own (all Miyoo)
+
+- I've updated the sleep time to 5min instead of only 2
+
+- Just as a note: make sure you build on a ARM mac, only works there
 
 ## Supported consoles
 
@@ -64,29 +65,12 @@ Extras:
 
 ## Supported Devices
 
-| Device | Added | Status |
-| -- | -- | -- |
-| Anbernic RG28xx | MinUI-20240429b-2 | Maintained |
-| Anbernic RG34xx | MinUI-20241227-0 | Maintained |
-| Anbernic RG35xx | MinUI-20230922b-2 | Deprecated |
-| Anbernic RG35xx Plus | MinUI-20240106b-0 | Maintained |
-| Anbernic RG35xxH | MinUI-20240120b-1 | Maintained |
-| Anbernic RG35xxSP | MinUI-20240525-0 | Maintained |
-| Anbernic RG40xxH | MinUI-20240717-1 | Maintained |
-| Anbernic RG40xxV | MinUI-20240831-0 | Maintained | 
-| Anbernic RG CubeXX | MinUI-202401028-0 | Active | 
-| GKD Pixel | MinUI-20240120b-1 | Deprecated |
-| M17 | MinUI-20231126b-2 | Deprecated |
-| MagicX XU Mini M | MinUI-20240831-0 | Deprecated | 
-| MagicX Mini Zero 28 | MinUI-20250111-0 | Active |
-| Miyoo A30 | MinUI-20240705-0 | Maintained |
-| Miyoo Flip | MinUI-20250111-0 | Active |
-| Miyoo Mini | MinUI-20230922b-2 | Deprecated |
+| Device          | Added             | Status     |
+| --------------- | ----------------- | ---------- |
+| Miyoo A30       | MinUI-20240705-0  | Maintained |
+| Miyoo Flip      | MinUI-20250111-0  | Active     |
+| Miyoo Mini      | MinUI-20230922b-2 | Deprecated |
 | Miyoo Mini Plus | MinUI-20230922b-2 | Deprecated |
-| Powkiddy RGB30 | MinUI-20231014b-1 | Deprecated |
-| Trimui Brick | MinUI-20241028-0 | Active |
-| Trimui Smart | MinUI-20230922b-2 | Deprecated |
-| Trimui Smart Pro | MinUI-20231111b-2 | Maintained |
 
 > [!NOTE]
 > **Active** actively working on compatibility and improvements specific to this device  
