@@ -305,6 +305,9 @@ int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines) {
 }
 
 ///////////////////////////////
+int show_setting = 0; //trying to fix volume thing after deep sleep
+///////////////////////////////
+
 
 // scale_blend (and supporting logic) from picoarch
 
@@ -1586,13 +1589,9 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 	) {
 		pwr.requested_sleep = 0;
 		if (before_sleep) before_sleep();
-		if (PLAT_supportsDeepSleep()) {
-			PWR_deepSleep();
-		} else {
-			PWR_fauxSleep();
-		}
-		if (after_sleep) after_sleep();
+		PWR_sleep();
 
+		if (after_sleep) after_sleep();
 		last_input_at = now = SDL_GetTicks();
 		power_pressed_at = 0;
 		dirty = 1;
@@ -1693,7 +1692,12 @@ static void PWR_enterSleep(void) {
 	system("killall -STOP keymon.elf");
 	
 	sync();
+	LOG_info("Entered sleep\n");
+
+	// Add a small delay to prevent immediate wake-up
+    SDL_Delay(500); // 500 milliseconds delay
 }
+
 static void PWR_exitSleep(void) {
 	system("killall -CONT keymon.elf");
 	if (GetHDMI()) {
@@ -1704,47 +1708,56 @@ static void PWR_exitSleep(void) {
 		SetVolume(GetVolume());
 	}
 	SDL_PauseAudio(0);
+
+	// Reset show_setting to ensure volume bar is not shown after waking up
+    show_setting = 0; //trying to fix volume thing after deep sleep
 	
 	sync();
+	LOG_info("Exited sleep\n");
 }
 
 static void PWR_waitForWake(void) {
 	uint32_t sleep_ticks = SDL_GetTicks();
-	while (!PAD_wake()) {
-		if (pwr.requested_wake) {
-			pwr.requested_wake = 0;
-			break;
-		}
-		SDL_Delay(200);
-		if (pwr.can_poweroff && SDL_GetTicks()-sleep_ticks>=120000) { // increased to two minutes
-			if (pwr.is_charging) sleep_ticks += 60000; // check again in a minute
-			else PWR_powerOff();
-		}
-	}
-	
- 	return;
- }
-void PWR_fauxSleep(void) {
- 	LOG_info("Entering faux sleep\n");
+	while (1) {
+        if (PAD_wake()) {
+            LOG_info("PAD_wake detected\n");
+            break;
+        }
+        if (pwr.requested_wake) {
+            LOG_info("Wake requested\n");
+            pwr.requested_wake = 0;
+            break;
+        }
+        SDL_Delay(200);
+        if (SDL_GetTicks() - sleep_ticks >= 120000) { // increased to two minutes
+            if (pwr.is_charging) {
+                sleep_ticks += 60000; // check again in a minute
+                continue;
+            }
+            if (PLAT_supportsDeepSleep() && PLAT_deepSleep() == 0) {
+                return;
+            }
+            if (pwr.can_poweroff) {
+                PWR_powerOff();
+            }
+        }
+    }
+    LOG_info("Waking up\n");
+    return;
+}
+
+void PWR_sleep(void) {
+ 	LOG_info("Entering hybrid sleep\n");
  	GFX_clear(gfx.screen);
  	PAD_reset();
  	PWR_enterSleep();
  	PWR_waitForWake();
  	PWR_exitSleep();
  	PAD_reset();
- }
-
-void PWR_deepSleep(void) {
- 	LOG_info("Entering deep sleep\n");
- 	GFX_clear(gfx.screen);
- 	PAD_reset();
- 	PWR_enterSleep();
- 	PLAT_deepSleep();
- 	PWR_exitSleep();
- 	PAD_reset();
 
  	pwr.resume_tick = SDL_GetTicks();
- }
+	LOG_info("Exited hybrid sleep\n");
+}
 
 void PWR_disableAutosleep(void) {
 	pwr.can_autosleep = 0;
