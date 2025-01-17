@@ -305,7 +305,14 @@ int GFX_wrapText(TTF_Font* font, char* str, int max_width, int max_lines) {
 }
 
 ///////////////////////////////
-int show_setting = 0; //trying to fix volume thing after deep sleep
+static int just_woke_up = 0; //trying to fix volume thing after deep sleep
+// TODO: I noticed that on the default OS
+// when booting from seleep, you get a 
+// display of the current volume. 
+// I wonder if this could have
+// something to do with the volume
+// issue I've seen after sleep, could be hardcoded
+// somewhere deeper?
 ///////////////////////////////
 
 
@@ -1598,6 +1605,13 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 	}
 	
 	int was_dirty = dirty; // dirty list (not including settings/battery)
+
+	// Reset show_setting if the device has just woken up
+    if (just_woke_up) {
+        show_setting = 0;
+        just_woke_up = 0;
+        dirty = 1;
+    }
 	
 	// TODO: only delay hiding setting changes if that setting didn't require a modifier button be held, otherwise release as soon as modifier is released
 	
@@ -1709,9 +1723,9 @@ static void PWR_exitSleep(void) {
 	}
 	SDL_PauseAudio(0);
 
-	// Reset show_setting to ensure volume bar is not shown after waking up
-    show_setting = 0; //trying to fix volume thing after deep sleep
-	
+	// Set the flag to indicate that the device has just woken up
+    just_woke_up = 1;
+
 	sync();
 	LOG_info("Exited sleep\n");
 }
