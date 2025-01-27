@@ -1576,7 +1576,9 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 	if (
 		pwr.requested_sleep || // hardware requested sleep
 		now-last_input_at>=SLEEP_DELAY || // autosleep
-		(pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at) // manual sleep
+		(pwr.can_sleep && PAD_justReleased(BTN_SLEEP) && power_pressed_at) || // manual sleep
+		(lid.has_lid && !lid.is_open) || // lid closed
+		(lid.has_lid && PLAT_lidChanged(&lid.is_open) && !lid.is_open) // lid just closed
 	) {
 		pwr.requested_sleep = 0;
 		if (before_sleep) before_sleep();
