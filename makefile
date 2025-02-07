@@ -11,7 +11,7 @@ endif
 endif
 
 ifeq (,$(PLATFORMS))
-PLATFORMS = my355 miyoomini tg5040 #trimuismart rg35xx rg35xxplus zero28 rgb30 m17 gkdpixel my282 magicmini
+PLATFORMS = tg5040 #my355 miyoomini trimuismart rg35xx rg35xxplus zero28 rgb30 m17 gkdpixel my282 magicmini
 endif
 
 ###########################################################
