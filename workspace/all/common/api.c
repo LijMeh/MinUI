@@ -935,18 +935,13 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 			setting_min = BRIGHTNESS_MIN;
 			setting_max = BRIGHTNESS_MAX;
 		}
-		if (show_setting==3) {
-			setting_value = GetColortemp();
-			setting_min = COLORTEMP_MIN;
-			setting_max = COLORTEMP_MAX;
-		}
 		else {
 			setting_value = GetVolume();
 			setting_min = VOLUME_MIN;
 			setting_max = VOLUME_MAX;
 		}
 		
-		int asset = show_setting==3?ASSET_BRIGHTNESS:show_setting==1?ASSET_BRIGHTNESS:(setting_value>0?ASSET_VOLUME:ASSET_VOLUME_MUTE);
+		int asset = show_setting==1?ASSET_BRIGHTNESS:(setting_value>0?ASSET_VOLUME:ASSET_VOLUME_MUTE);
 		int ax = ox + (show_setting==1 ? SCALE1(6) : SCALE1(8));
 		int ay = oy + (show_setting==1 ? SCALE1(5) : SCALE1(7));
 		GFX_blitAsset(asset, NULL, dst, &(SDL_Rect){ax,ay});
@@ -961,7 +956,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 		});
 		
 		float percent = ((float)(setting_value-setting_min) / (setting_max-setting_min));
-		if (show_setting==1 || show_setting==3 || setting_value>0) {
+		if (show_setting==1 || setting_value>0) {
 			GFX_blitPill(ASSET_BAR, dst, &(SDL_Rect){
 				ox,
 				oy,
@@ -1008,7 +1003,6 @@ void GFX_blitHardwareHints(SDL_Surface* dst, int show_setting) {
 	}
 	else {
 		if (show_setting==1) GFX_blitButtonGroup((char*[]){ BRIGHTNESS_BUTTON_LABEL,"BRIGHTNESS",  NULL }, 0, dst, 0);
-		if (show_setting==3) GFX_blitButtonGroup((char*[]){ BRIGHTNESS_BUTTON_LABEL,"COLORTEMP",  NULL }, 0, dst, 0);
 		else GFX_blitButtonGroup((char*[]){ "MENU","BRIGHTNESS",  NULL }, 0, dst, 0);
 	}
 	
@@ -1970,9 +1964,6 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 		setting_shown_at = now;
 		if (PAD_isPressed(BTN_MOD_BRIGHTNESS)) {
 			show_setting = 1;
-		}
-		if (PAD_isPressed(BTN_MOD_COLORTEMP)) {
-			show_setting = 3;
 		}
 		else {
 			show_setting = 2;
