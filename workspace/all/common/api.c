@@ -14,7 +14,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
-
+#include <sys/stat.h>
 
 #include "utils.h"
 
@@ -56,6 +56,7 @@ uint32_t RGB_BLACK;
 uint32_t RGB_LIGHT_GRAY;
 uint32_t RGB_GRAY;
 uint32_t RGB_DARK_GRAY;
+float currentbufferms = 20.0;
 
 static struct GFX_Context {
 	SDL_Surface* screen;
@@ -70,7 +71,12 @@ static uint32_t asset_rgbs[ASSET_COLORS];
 GFX_Fonts font;
 
 ///////////////////////////////
-
+static int qualityLevels[] = {
+	3,
+	4,
+	2,
+	1
+};
 static struct PWR_Context {
 	int initialized;
 	
@@ -89,6 +95,23 @@ static struct PWR_Context {
 	SDL_Surface* overlay;
 } pwr = {0};
 
+
+static struct SND_Context {
+	int initialized;
+	double frame_rate;
+	
+	int sample_rate_in;
+	int sample_rate_out;
+	
+	SND_Frame* buffer;		// buf
+	size_t frame_count; 	// buf_len
+	
+	int frame_in;     // buf_w
+	int frame_out;    // buf_r
+	int frame_filled; // max_buf_w
+	
+} snd = {0};
+
 ///////////////////////////////
 
 static int _;
@@ -96,6 +119,11 @@ static int _;
 static double current_fps = SCREEN_FPS;
 static int fps_counter = 0;
 double currentfps = 0.0;
+double currentreqfps = 0.0;
+
+int currentbuffersize = 0;
+int currentsampleratein = 0;
+int currentsamplerateout = 0;
 SDL_Surface* GFX_init(int mode) {
 	// TODO: this doesn't really belong here...
 	// tried adding to PWR_init() but that was no good (not sure why)
@@ -214,9 +242,151 @@ void GFX_startFrame(void) {
 	frame_start = SDL_GetTicks();
 }
 
+
+void chmodfile(const char *file, int writable)
+{
+    struct stat statbuf;
+    if (stat(file, &statbuf) == 0)
+    {
+        mode_t newMode;
+        if (writable)
+        {
+            // Add write permissions for all users
+            newMode = statbuf.st_mode | S_IWUSR | S_IWGRP | S_IWOTH;
+        }
+        else
+        {
+            // Remove write permissions for all users
+            newMode = statbuf.st_mode & ~(S_IWUSR | S_IWGRP | S_IWOTH);
+        }
+
+        // Apply the new permissions
+        if (chmod(file, newMode) != 0)
+        {
+            printf("chmod error %d %s", writable, file);
+        }
+    }
+    else
+    {
+        printf("stat error %d %s", writable, file);
+    }
+}
+
+uint32_t GFX_extract_dominant_color(const void *data, unsigned width, unsigned height, size_t pitch) {
+	if (!data) {
+        fprintf(stderr, "Error: data is NULL.\n");
+        return 0;
+    }
+
+    uint16_t *pixels = (uint16_t *)data;
+    int pixel_count = width * height;
+
+    uint64_t total_r = 0;
+    uint64_t total_g = 0;
+    uint64_t total_b = 0;
+    uint8_t r, g, b;
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            uint16_t pixel = pixels[y * (pitch / 2) + x];  // Access pixel data
+
+            // Manually extract RGB values from RGB565 format
+            r = (pixel & 0xF800) >> 8;  // 5 bits red
+            g = (pixel & 0x07E0) >> 3;  // 6 bits green
+            b = (pixel & 0x001F) << 3;  // 5 bits blue
+
+            // Normalize RGB values to 8 bits
+            r |= r >> 5;
+            g |= g >> 6;
+            b |= b >> 5;
+
+            // Accumulate the color components
+            total_r += r;
+            total_g += g;
+            total_b += b;
+        }
+    }
+
+    // Calculate the average color components
+    uint8_t avg_r = total_r / pixel_count;
+    uint8_t avg_g = total_g / pixel_count;
+    uint8_t avg_b = total_b / pixel_count;
+
+    // Combine average color components into a single uint32_t color
+    uint32_t average_color = (avg_r << 16) | (avg_g << 8) | avg_b;
+
+    return average_color;
+
+}
+
+
+void GFX_setAmbientColor(const void *data, unsigned width, unsigned height, size_t pitch,int mode) {
+	if(mode==0) return;
+
+	uint32_t dominant_color = GFX_extract_dominant_color(data, width, height,pitch);
+   
+	if(mode==1 || mode==2 || mode==5) {
+		chmodfile("/sys/class/led_anim/effect_m", 1);
+		chmodfile("/sys/class/led_anim/effect_rgb_hex_m", 1);
+		// chmodfile("", 1);
+		FILE *file = fopen("/sys/class/led_anim/effect_m", "w");
+		FILE *file2 = fopen("/sys/class/led_anim/effect_rgb_hex_m", "w");
+		// file3 = fopen(filepath, "w");
+		fprintf(file, "4");
+		fprintf(file2, "%06X", dominant_color);
+		
+		fclose(file);
+		fclose(file2);
+		chmodfile("/sys/class/led_anim/effect_m", 0);
+		chmodfile("/sys/class/led_anim/effect_rgb_hex_m", 0);
+	}
+	if(mode==1 || mode==3) {
+		chmodfile("/sys/class/led_anim/effect_f1", 1);
+		chmodfile("/sys/class/led_anim/effect_rgb_hex_f1", 1);
+		chmodfile("/sys/class/led_anim/effect_f2", 1);
+		chmodfile("/sys/class/led_anim/effect_rgb_hex_f2", 1);
+		// chmodfile("", 1);
+		FILE *file = fopen("/sys/class/led_anim/effect_f1", "w");
+		FILE *file2 = fopen("/sys/class/led_anim/effect_rgb_hex_f1", "w");
+		FILE *file3 = fopen("/sys/class/led_anim/effect_f2", "w");
+		FILE *file4 = fopen("/sys/class/led_anim/effect_rgb_hex_f2", "w");
+		// file3 = fopen(filepath, "w");
+		fprintf(file, "4");
+		fprintf(file2, "%06X", dominant_color);
+		fprintf(file3, "4");
+		fprintf(file4, "%06X", dominant_color);
+		
+		fclose(file);
+		fclose(file2);
+		fclose(file3);
+		fclose(file4);
+		chmodfile("/sys/class/led_anim/effect_f1", 0);
+		chmodfile("/sys/class/led_anim/effect_rgb_hex_f1", 0);
+		chmodfile("/sys/class/led_anim/effect_f2", 0);
+		chmodfile("/sys/class/led_anim/effect_rgb_hex_f2", 0);
+	}
+	if(mode==1 || mode==4 || mode==5) {
+		chmodfile("/sys/class/led_anim/effect_lr", 1);
+		chmodfile("/sys/class/led_anim/effect_rgb_hex_lr", 1);
+		// chmodfile("", 1);
+		FILE *file = fopen("/sys/class/led_anim/effect_lr", "w");
+		FILE *file2 = fopen("/sys/class/led_anim/effect_rgb_hex_lr", "w");
+		// file3 = fopen(filepath, "w");
+		fprintf(file, "4");
+		fprintf(file2, "%06X", dominant_color);
+		
+		fclose(file);
+		fclose(file2);
+		chmodfile("/sys/class/led_anim/effect_lr", 0);
+		chmodfile("/sys/class/led_anim/effect_rgb_hex_lr", 0);
+	}
+}
+
 void GFX_flip(SDL_Surface* screen) {
 	int should_vsync = (gfx.vsync!=VSYNC_OFF && (gfx.vsync==VSYNC_STRICT || frame_start==0 || SDL_GetTicks()-frame_start<FRAME_BUDGET));
 	PLAT_flip(screen, should_vsync);
+	
+	currentfps = current_fps;
 	fps_counter++;
 
 	uint64_t performance_frequency = SDL_GetPerformanceFrequency();
@@ -224,12 +394,14 @@ void GFX_flip(SDL_Surface* screen) {
 	double elapsed_time_s = (double)frame_duration / performance_frequency;
 	double tempfps = 1.0 / elapsed_time_s;
 	if (!should_vsync) {
-    uint64_t frame_time = performance_frequency / SCREEN_FPS;  // Time per frame in performance counter units
-    if (frame_duration < frame_time) {
-        uint64_t delay_time = frame_time - frame_duration;  // Calculate the remaining time to wait
-        SDL_Delay((1000 * delay_time) / performance_frequency);  // Convert to milliseconds and delay
-    }
-}
+		uint64_t frame_time = performance_frequency / snd.frame_rate;  // Time per frame in performance counter units
+		if (frame_duration < frame_time) {
+			uint64_t delay_time = frame_time - frame_duration;  // Calculate the remaining time to wait
+			SDL_Delay((1000 * delay_time) / performance_frequency);  // Convert to milliseconds and delay
+		}
+		per_frame_start = SDL_GetPerformanceCounter();
+		return;
+	}
 	if(tempfps < SCREEN_FPS * 0.8 || tempfps > SCREEN_FPS * 1.2) tempfps = SCREEN_FPS;
 	
 	// filling with  60.1 cause i'd rather underrun than overflow in start phase
@@ -247,11 +419,12 @@ void GFX_flip(SDL_Surface* screen) {
 			average_fps += fps_buffer[i];
 		}
 		average_fps /= fpsbuffersize;
-
 		current_fps = average_fps;
 	}
+	
 	per_frame_start = SDL_GetPerformanceCounter();
 }
+// eventually this function should be removed as its only here because of all the audio buffer based delay stuff
 void GFX_sync(void) {
 	uint32_t frame_duration = SDL_GetTicks() - frame_start;
 	if (gfx.vsync!=VSYNC_OFF) {
@@ -263,6 +436,11 @@ void GFX_sync(void) {
 	else {
 		if (frame_duration<FRAME_BUDGET) SDL_Delay(FRAME_BUDGET-frame_duration);
 	}
+}
+// if a fake vsycn delay is really needed 
+void GFX_delay(void) {
+	uint32_t frame_duration = SDL_GetTicks() - frame_start;
+	if (frame_duration<((1/SCREEN_FPS) * 1000)) SDL_Delay(((1/SCREEN_FPS) * 1000)-frame_duration);
 }
 
 FALLBACK_IMPLEMENTATION int PLAT_supportsOverscan(void) { return 0; }
@@ -757,13 +935,18 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 			setting_min = BRIGHTNESS_MIN;
 			setting_max = BRIGHTNESS_MAX;
 		}
+		if (show_setting==3) {
+			setting_value = GetColortemp();
+			setting_min = COLORTEMP_MIN;
+			setting_max = COLORTEMP_MAX;
+		}
 		else {
 			setting_value = GetVolume();
 			setting_min = VOLUME_MIN;
 			setting_max = VOLUME_MAX;
 		}
 		
-		int asset = show_setting==1?ASSET_BRIGHTNESS:(setting_value>0?ASSET_VOLUME:ASSET_VOLUME_MUTE);
+		int asset = show_setting==3?ASSET_BRIGHTNESS:show_setting==1?ASSET_BRIGHTNESS:(setting_value>0?ASSET_VOLUME:ASSET_VOLUME_MUTE);
 		int ax = ox + (show_setting==1 ? SCALE1(6) : SCALE1(8));
 		int ay = oy + (show_setting==1 ? SCALE1(5) : SCALE1(7));
 		GFX_blitAsset(asset, NULL, dst, &(SDL_Rect){ax,ay});
@@ -778,7 +961,7 @@ int GFX_blitHardwareGroup(SDL_Surface* dst, int show_setting) {
 		});
 		
 		float percent = ((float)(setting_value-setting_min) / (setting_max-setting_min));
-		if (show_setting==1 || setting_value>0) {
+		if (show_setting==1 || show_setting==3 || setting_value>0) {
 			GFX_blitPill(ASSET_BAR, dst, &(SDL_Rect){
 				ox,
 				oy,
@@ -825,6 +1008,7 @@ void GFX_blitHardwareHints(SDL_Surface* dst, int show_setting) {
 	}
 	else {
 		if (show_setting==1) GFX_blitButtonGroup((char*[]){ BRIGHTNESS_BUTTON_LABEL,"BRIGHTNESS",  NULL }, 0, dst, 0);
+		if (show_setting==3) GFX_blitButtonGroup((char*[]){ BRIGHTNESS_BUTTON_LABEL,"COLORTEMP",  NULL }, 0, dst, 0);
 		else GFX_blitButtonGroup((char*[]){ "MENU","BRIGHTNESS",  NULL }, 0, dst, 0);
 	}
 	
@@ -967,21 +1151,7 @@ void GFX_blitText(TTF_Font* font, char* str, int leading, SDL_Color color, SDL_S
 
 #define ms SDL_GetTicks
 
-static struct SND_Context {
-	int initialized;
-	double frame_rate;
-	
-	int sample_rate_in;
-	int sample_rate_out;
-	
-	SND_Frame* buffer;		// buf
-	size_t frame_count; 	// buf_len
-	
-	int frame_in;     // buf_w
-	int frame_out;    // buf_r
-	int frame_filled; // max_buf_w
-	
-} snd = {0};
+
 
 pthread_mutex_t audio_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -993,19 +1163,20 @@ static void SND_audioCallback(void *userdata, uint8_t *stream, int len) {
 	len /= (sizeof(int16_t) * 2);
 
 	// Lock the mutex before accessing shared resources
-	pthread_mutex_lock(&audio_mutex);
+	
 
 	while (snd.frame_out != snd.frame_in && len > 0) {
+		
 		*out++ = snd.buffer[snd.frame_out].left;
 		*out++ = snd.buffer[snd.frame_out].right;
-
+		pthread_mutex_lock(&audio_mutex);
 		snd.frame_out += 1;
 		len -= 1;
-
 		if (snd.frame_out >= snd.frame_count)
 			snd.frame_out = 0;
+		pthread_mutex_unlock(&audio_mutex);
 	}
-	pthread_mutex_unlock(&audio_mutex);
+	
 
 	if (len > 0) {
 		memset(out, 0, len * (sizeof(int16_t) * 2));
@@ -1025,9 +1196,14 @@ static void SND_resizeBuffer(void) { // plat_sound_resize_buffer
 
 	snd.frame_in = 0;
 	snd.frame_out = 0;
-	// snd.frame_filled = snd.frame_count - 1;
 
 	SDL_UnlockAudio();
+}
+static int soundQuality = 2;
+static int resetSrcState = 0;
+void SND_setQuality(int quality) {
+	soundQuality = qualityLevels[quality];
+	resetSrcState = 1;
 }
 ResampledFrames resample_audio(const SND_Frame *input_frames,
 	int input_frame_count, int input_sample_rate,
@@ -1036,8 +1212,9 @@ ResampledFrames resample_audio(const SND_Frame *input_frames,
 	static double previous_ratio = 1.0;
 	static SRC_STATE *src_state = NULL;
 
-	if (!src_state) {
-		src_state = src_new(SRC_SINC_FASTEST, 2, &error);
+	if (!src_state || resetSrcState) {
+		resetSrcState = 0;
+		src_state = src_new(soundQuality, 2, &error);
 		if (src_state == NULL) {
 			fprintf(stderr, "Error initializing SRC state: %s\n",
 				src_strerror(error));
@@ -1121,6 +1298,48 @@ ResampledFrames resample_audio(const SND_Frame *input_frames,
 	return resampled;
 }
 
+
+#define ROLLING_AVERAGE_WINDOW_SIZE 5
+static float adjustment_history[ROLLING_AVERAGE_WINDOW_SIZE] = {0.0f};
+static int adjustment_index = 0;
+
+float calculateBufferAdjustment(float remaining_space, float targetbuffer_over, float targetbuffer_under, int batchsize) {
+
+    float midpoint = (targetbuffer_over + targetbuffer_under) / 2.0f;
+
+    float normalizedDistance;
+    if (remaining_space < midpoint) {
+        normalizedDistance = (midpoint - remaining_space) / (midpoint - targetbuffer_over);
+    } else {
+        normalizedDistance = (remaining_space - midpoint) / (targetbuffer_under - midpoint);
+    }
+	// I make crazy small adjustments, mooore tiny is mooore stable :D But don't come neir the limits cuz imma hit ya with that 0.005 ratio adjustment, pow pow!
+    // I wonder if staying in the middle of 0 to 4000 with 512 samples per batch playing at tiny different speeds each iteration is like the smallest I can get
+	// lets say hovering around 2000 means 2000 samples queue, about 4 frames, so at 17ms(60fps) thats  68ms delay right?
+	// Should have payed attention when my math teacher was talking dammit
+	// Also I chose 3 for pow, but idk if that really the best nr, anyone good in maths looking at my code?
+	float adjustment = 0.0000001f + (0.005f - 0.0000001f) * pow(normalizedDistance, 3);
+
+    if (remaining_space < midpoint) {
+        adjustment = -adjustment;
+    }
+
+    adjustment_history[adjustment_index] = adjustment;
+    adjustment_index = (adjustment_index + 1) % ROLLING_AVERAGE_WINDOW_SIZE;
+
+    // Calculate the rolling average
+    float rolling_average = 0.0f;
+    for (int i = 0; i < ROLLING_AVERAGE_WINDOW_SIZE; ++i) {
+        rolling_average += adjustment_history[i];
+    }
+    rolling_average /= ROLLING_AVERAGE_WINDOW_SIZE;
+
+    return rolling_average;
+}
+
+
+
+
 static SND_Frame tmpbuffer[BATCH_SIZE];
 static SND_Frame *unwritten_frames = NULL;
 static int unwritten_frame_count = 0;
@@ -1128,11 +1347,15 @@ static int unwritten_frame_count = 0;
 float currentratio = 0.0;
 int currentbufferfree = 0;
 int currentframecount = 0;
+static double ratio = 1.0;
 size_t SND_batchSamples(const SND_Frame *frames, size_t frame_count) {
-	static double ratio = 1.0;
+	
+	int framecount = (int)frame_count;
 
-	int remaining_space;
-	pthread_mutex_lock(&audio_mutex);
+	int consumed = 0;
+	int total_consumed_frames = 0;
+
+	float remaining_space=snd.frame_count;
 	if (snd.frame_in >= snd.frame_out) {
 		remaining_space = snd.frame_count - (snd.frame_in - snd.frame_out);
 	}
@@ -1141,20 +1364,17 @@ size_t SND_batchSamples(const SND_Frame *frames, size_t frame_count) {
 	}
 	currentbufferfree = remaining_space;
 
-	pthread_mutex_unlock(&audio_mutex);
+	float tempdelay = ((snd.frame_count - remaining_space) / snd.sample_rate_out) * 1000;
+
+	currentbufferms = tempdelay;
 
 	float tempratio = (float)snd.sample_rate_out / (float)snd.sample_rate_in;
-	ratio = tempratio * (snd.frame_rate / current_fps);
+	// i use 0.4* as minimum free space because i want my algorithm to fight more for free buffer then full, cause you know free buffer is lower latency :D
+	// My algorithm is fighting here with audio hardware. 
+	// It's like a person is trying to balance on a rope (my algorithm) and another person (the audio hardware and screen) is wiggling the rope and the balancing person got to keep countering and try to stay stable
+	float bufferadjustment = calculateBufferAdjustment(remaining_space, snd.frame_count*0.4, snd.frame_count,frame_count);
+	ratio = (tempratio * (snd.frame_rate / current_fps)) + bufferadjustment;
 
-	int targetbuffer = snd.frame_count * 0.8;
-	if (remaining_space < targetbuffer) {
-		ratio = ratio - 0.003;
-	}
-	else if (remaining_space > targetbuffer) {
-		ratio = ratio + 0.003;
-	}
-
-	currentfps = current_fps;
 	currentratio = ratio;
 
 	if(ratio > 1.5) 
@@ -1162,17 +1382,8 @@ size_t SND_batchSamples(const SND_Frame *frames, size_t frame_count) {
 	if(ratio < 0.5)
 		ratio = 0.5;
 
-	int framecount = (int)frame_count;
-
-	if (snd.frame_count == 0) {
-		LOG_info("Frame count is 0, returning 0.");
-		return 0;
-	}
-
-	int consumed = 0;
-	int total_consumed_frames = 0;
-
 	while (framecount > 0) {
+		
 		int amount = MIN(BATCH_SIZE, framecount);
 
 		for (int i = 0; i < amount; i++) {
@@ -1195,8 +1406,9 @@ size_t SND_batchSamples(const SND_Frame *frames, size_t frame_count) {
 			pthread_mutex_lock(&audio_mutex);
 			snd.buffer[snd.frame_in] = resampled.frames[i];
 			snd.frame_in = (snd.frame_in + 1) % snd.frame_count;
-			written_frames++;
 			pthread_mutex_unlock(&audio_mutex);
+			written_frames++;
+			
 		}
 		
 		total_consumed_frames += written_frames;
@@ -1208,7 +1420,7 @@ size_t SND_batchSamples(const SND_Frame *frames, size_t frame_count) {
 
 void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	LOG_info("SND_init\n");
-	
+	currentreqfps = frame_rate;
 	SDL_InitSubSystem(SDL_INIT_AUDIO);
 	
 #if defined(USE_SDL2)
@@ -1233,9 +1445,12 @@ void SND_init(double sample_rate, double frame_rate) { // plat_sound_init
 	
 	if (SDL_OpenAudio(&spec_in, &spec_out)<0) LOG_info("SDL_OpenAudio error: %s\n", SDL_GetError());
 	
-	snd.frame_count = 4000;
+	snd.frame_count = ((float)spec_out.freq/SCREEN_FPS)*6; // buffer size based on sample rate out (with 6 frames headroom), ideally you want to use actual FPS but don't know it at this point yet 
+	currentbuffersize = snd.frame_count;
 	snd.sample_rate_in  = sample_rate;
 	snd.sample_rate_out = spec_out.freq;
+	currentsampleratein = snd.sample_rate_in;
+	currentsamplerateout = snd.sample_rate_out;
 	
 	SND_resizeBuffer();
 	
@@ -1755,6 +1970,9 @@ void PWR_update(int* _dirty, int* _show_setting, PWR_callback_t before_sleep, PW
 		setting_shown_at = now;
 		if (PAD_isPressed(BTN_MOD_BRIGHTNESS)) {
 			show_setting = 1;
+		}
+		if (PAD_isPressed(BTN_MOD_COLORTEMP)) {
+			show_setting = 3;
 		}
 		else {
 			show_setting = 2;

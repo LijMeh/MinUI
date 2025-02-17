@@ -63,6 +63,11 @@ extern float currentratio;
 extern int currentbufferfree;
 extern int currentframecount;
 extern double currentfps;
+extern double currentreqfps;
+extern float currentbufferms;
+extern int currentbuffersize;
+extern int currentsampleratein;
+extern int currentsamplerateout;
 
 enum {
 	ASSET_WHITE_PILL,
@@ -168,6 +173,7 @@ void audioFPS(void);
 void GFX_flip(SDL_Surface* screen);
 #define GFX_supportsOverscan PLAT_supportsOverscan // (void)
 void GFX_sync(void); // call this to maintain 60fps when not calling GFX_flip() this frame
+void GFX_delay(void); // gfx_sync() is only for everywhere where there is no audio buffer to rely on for delaying, stupid so doing gfx_delay() for like waiting for input loop in binding menu. Need to remove gfx_sync() everwhere eventually
 void GFX_quit(void);
 
 enum {
@@ -203,7 +209,7 @@ int GFX_blitButtonGroup(char** hints, int primary, SDL_Surface* dst, int align_r
 
 void GFX_sizeText(TTF_Font* font, char* str, int leading, int* w, int* h);
 void GFX_blitText(TTF_Font* font, char* str, int leading, SDL_Color color, SDL_Surface* dst, SDL_Rect* dst_rect);
-
+void GFX_setAmbientColor();
 ///////////////////////////////
 
 typedef struct SND_Frame {
@@ -219,6 +225,7 @@ typedef struct {
 void SND_init(double sample_rate, double frame_rate);
 size_t SND_batchSamples(const SND_Frame* frames, size_t frame_count);
 void SND_quit(void);
+void SND_setQuality(int quality);
 
 ///////////////////////////////
 
@@ -323,6 +330,7 @@ int PLAT_shouldWake(void);
 
 SDL_Surface* PLAT_initVideo(void);
 void PLAT_quitVideo(void);
+uint32_t PLAT_get_dominant_color(void);
 void PLAT_clearVideo(SDL_Surface* screen);
 void PLAT_clearAll(void);
 void PLAT_setVsync(int vsync);

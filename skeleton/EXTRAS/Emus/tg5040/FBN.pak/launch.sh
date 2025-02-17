@@ -1,7 +1,7 @@
 #!/bin/sh
 
-EMU_EXE=snes9x
-
+EMU_EXE=fbneo
+CORES_PATH=$(dirname "$0")
 ###############################
 
 EMU_TAG=$(basename "$(dirname "$0")" .pak)
